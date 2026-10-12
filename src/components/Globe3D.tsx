@@ -1,7 +1,13 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { loadEarthTextureWithFallback } from '../utils/earthTexture';
-import { GestureDetectionResult, CityMarker, GlobeSettings } from '../types';
+import { SatelliteTextureManager } from '../utils/earthTexture';
+import {
+  GestureDetectionResult,
+  CityMarker,
+  GlobeSettings,
+  SatelliteEntity,
+  SatelliteLayerMode,
+} from '../types';
 
 interface Globe3DProps {
   gestureResult: GestureDetectionResult | null;
@@ -9,21 +15,81 @@ interface Globe3DProps {
   onResetComplete?: () => void;
   selectedCity?: CityMarker | null;
   onSelectCity?: (city: CityMarker | null) => void;
+  selectedSatellite?: SatelliteEntity | null;
+  onSelectSatellite?: (sat: SatelliteEntity | null) => void;
 }
 
-export const CITIES: CityMarker[] = [
-  { name: 'Tokyo', country: 'Japan', lat: 35.6762, lng: 139.6503, description: 'Cyberpunk metropolis & tech hub' },
-  { name: 'London', country: 'United Kingdom', lat: 51.5074, lng: -0.1278, description: 'Prime meridian & global financial center' },
-  { name: 'New York', country: 'United States', lat: 40.7128, lng: -74.006, description: 'The Big Apple & cultural epicenter' },
-  { name: 'San Francisco', country: 'United States', lat: 37.7749, lng: -122.4194, description: 'Silicon Valley AI innovation center' },
-  { name: 'Sydney', country: 'Australia', lat: -33.8688, lng: 151.2093, description: 'Pacific harbor & Southern cross' },
-  { name: 'Cairo', country: 'Egypt', lat: 30.0444, lng: 31.2357, description: 'Ancient cradle on the river Nile' },
-  { name: 'Singapore', country: 'Singapore', lat: 1.3521, lng: 103.8198, description: 'Futuristic island city-state' },
-  { name: 'Paris', country: 'France', lat: 48.8566, lng: 2.3522, description: 'City of light & global culture' },
-  { name: 'Rio de Janeiro', country: 'Brazil', lat: -22.9068, lng: -43.1729, description: 'Iconic coastal metropolis' },
+export const REAL_SATELLITES: SatelliteEntity[] = [
+  {
+    id: 'iss',
+    name: 'International Space Station (ISS)',
+    code: 'ISS-ZARYA',
+    altitudeKm: 420,
+    speedKmh: 27580,
+    inclination: 51.6,
+    mission: 'Habited microgravity orbital laboratory',
+    agency: 'NASA / ESA / JAXA / CSA / Roscosmos',
+    orbitRadius: 2.15,
+    orbitSpeed: 0.45,
+    color: '#00f0ff',
+    category: 'Space Station',
+  },
+  {
+    id: 'hubble',
+    name: 'Hubble Space Telescope (HST)',
+    code: 'HST-1990',
+    altitudeKm: 540,
+    speedKmh: 27300,
+    inclination: 28.5,
+    mission: 'Deep cosmic optical & UV astrophysics',
+    agency: 'NASA / ESA',
+    orbitRadius: 2.26,
+    orbitSpeed: 0.38,
+    color: '#c084fc',
+    category: 'Observatory',
+  },
+  {
+    id: 'landsat9',
+    name: 'Landsat 9 Earth Observer',
+    code: 'LANDSAT-9',
+    altitudeKm: 705,
+    speedKmh: 26800,
+    inclination: 98.2,
+    mission: 'Multispectral planetary surface monitoring',
+    agency: 'NASA / USGS',
+    orbitRadius: 2.38,
+    orbitSpeed: 0.32,
+    color: '#34d399',
+    category: 'Earth Observation',
+  },
+  {
+    id: 'jwst',
+    name: 'James Webb Space Telescope (JWST)',
+    code: 'JWST-L2',
+    altitudeKm: 1500000,
+    speedKmh: 1100,
+    inclination: 5.2,
+    mission: 'Deep cosmic infrared universe observatory',
+    agency: 'NASA / ESA / CSA',
+    orbitRadius: 3.1,
+    orbitSpeed: 0.12,
+    color: '#facc15',
+    category: 'Deep Space',
+  },
 ];
 
-// Converts Lat/Long coordinates to 3D Cartesian Vector
+export const CITIES: CityMarker[] = [
+  { name: 'Tokyo', country: 'Japan', lat: 35.6762, lng: 139.6503, description: 'Cyberpunk metropolis & AI tech hub', region: 'Asia-Pacific' },
+  { name: 'London', country: 'United Kingdom', lat: 51.5074, lng: -0.1278, description: 'Prime meridian & global financial center', region: 'Europe' },
+  { name: 'New York', country: 'United States', lat: 40.7128, lng: -74.006, description: 'Global cultural epicenter', region: 'North America' },
+  { name: 'San Francisco', country: 'United States', lat: 37.7749, lng: -122.4194, description: 'Silicon Valley space & AI innovation', region: 'North America' },
+  { name: 'Sydney', country: 'Australia', lat: -33.8688, lng: 151.2093, description: 'Pacific harbor & Southern cross', region: 'Oceania' },
+  { name: 'Cairo', country: 'Egypt', lat: 30.0444, lng: 31.2357, description: 'Ancient cradle on the River Nile', region: 'Africa' },
+  { name: 'Singapore', country: 'Singapore', lat: 1.3521, lng: 103.8198, description: 'Futuristic equatorial city-state', region: 'Asia-Pacific' },
+  { name: 'Paris', country: 'France', lat: 48.8566, lng: 2.3522, description: 'City of light & European Space Agency center', region: 'Europe' },
+  { name: 'Rio de Janeiro', country: 'Brazil', lat: -22.9068, lng: -43.1729, description: 'Iconic South Atlantic coastal metropolis', region: 'South America' },
+];
+
 function latLngToVector3(lat: number, lng: number, radius: number): THREE.Vector3 {
   const phi = (90 - lat) * (Math.PI / 180);
   const theta = (lng + 180) * (Math.PI / 180);
@@ -39,10 +105,12 @@ export const Globe3D: React.FC<Globe3DProps> = ({
   onResetComplete,
   selectedCity,
   onSelectCity,
+  selectedSatellite,
+  onSelectSatellite,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
 
-  // Three.js instances refs
+  // Three.js instances
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -51,22 +119,24 @@ export const Globe3D: React.FC<Globe3DProps> = ({
   const atmosphereMeshRef = useRef<THREE.Mesh | null>(null);
   const gridMeshRef = useRef<THREE.Mesh | null>(null);
   const markersGroupRef = useRef<THREE.Group | null>(null);
+  const satellitesGroupRef = useRef<THREE.Group | null>(null);
+  const nebulaGroupRef = useRef<THREE.Group | null>(null);
+  const textureManagerRef = useRef<SatelliteTextureManager | null>(null);
 
-  // Camera & Globe Transform State
+  // Camera & Globe Transforms
   const globeRotation = useRef({ x: 0.2, y: 0, z: 0 });
   const cameraTarget = useRef({ x: 0, y: 0, z: 0 });
   const cameraDistance = useRef(4.6);
   const isResetting = useRef(false);
 
-  // Manual mouse/touch drag state
+  // Manual pointer controls
   const isPointerDown = useRef(false);
   const pointerStart = useRef({ x: 0, y: 0 });
   const dragMode = useRef<'rotate' | 'pan'>('rotate');
 
-  // Animation frame ref
   const animFrameId = useRef<number | null>(null);
 
-  // Initial Scene Setup
+  // Initialize Three.js Space World
   useEffect(() => {
     if (!mountRef.current) return;
     const container = mountRef.current;
@@ -76,45 +146,85 @@ export const Globe3D: React.FC<Globe3DProps> = ({
     // 1. Scene
     const scene = new THREE.Scene();
     sceneRef.current = scene;
+    scene.fog = new THREE.FogExp2(0x020617, 0.012);
 
     // 2. Camera
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1200);
     camera.position.set(0, 0, cameraDistance.current);
     cameraRef.current = camera;
 
-    // 3. Renderer with antialiasing and high pixel ratio
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    // 3. WebGL Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    renderer.toneMappingExposure = 1.25;
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
-    // 4. Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    // 4. Lighting System
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffffff, 1.8);
-    sunLight.position.set(8, 4, 6);
+    // Primary Solar Directional Light
+    const sunLight = new THREE.DirectionalLight(0xfffaed, 2.2);
+    sunLight.position.set(12, 5, 8);
     scene.add(sunLight);
 
-    const rimLight = new THREE.DirectionalLight(0x06b6d4, 1.2);
-    rimLight.position.set(-8, -4, -4);
-    scene.add(rimLight);
+    // Cyber space fill light
+    const cosmicFill = new THREE.DirectionalLight(0x00f0ff, 0.6);
+    cosmicFill.position.set(-10, -6, -6);
+    scene.add(cosmicFill);
 
-    // 5. Starfield Background
-    const starCount = 1400;
+    const violetRim = new THREE.DirectionalLight(0xa855f7, 0.5);
+    violetRim.position.set(0, 10, -8);
+    scene.add(violetRim);
+
+    // 5. Cosmic Nebulae & Deep Space Dust
+    const nebulaGroup = new THREE.Group();
+    scene.add(nebulaGroup);
+    nebulaGroupRef.current = nebulaGroup;
+
+    // Add multi-layered cosmic nebula dust clouds
+    const nebulaColors = [0x06b6d4, 0x8b5cf6, 0xec4899, 0x3b82f6];
+    for (let i = 0; i < 40; i++) {
+      const radius = 60 + Math.random() * 80;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+
+      const x = radius * Math.sin(phi) * Math.cos(theta);
+      const y = radius * Math.sin(phi) * Math.sin(theta);
+      const z = radius * Math.cos(phi);
+
+      const geo = new THREE.SphereGeometry(14 + Math.random() * 26, 12, 12);
+      const mat = new THREE.MeshBasicMaterial({
+        color: nebulaColors[i % nebulaColors.length],
+        transparent: true,
+        opacity: 0.035 + Math.random() * 0.04,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const cloud = new THREE.Mesh(geo, mat);
+      cloud.position.set(x, y, z);
+      nebulaGroup.add(cloud);
+    }
+
+    // 6. 2,600 Starfield with realistic stellar temperatures
+    const starCount = 2600;
     const starGeo = new THREE.BufferGeometry();
     const starPositions = new Float32Array(starCount * 3);
     const starColors = new Float32Array(starCount * 3);
 
-    const cyanColor = new THREE.Color(0x06b6d4);
-    const violetColor = new THREE.Color(0xa855f7);
-    const whiteColor = new THREE.Color(0xffffff);
+    const starColorPalette = [
+      new THREE.Color(0xa5f3fc), // O/B Cyan-Blue
+      new THREE.Color(0xffffff), // A White
+      new THREE.Color(0xfef08a), // G Solar Yellow
+      new THREE.Color(0xfbcfe8), // M Warm Red/Pink
+      new THREE.Color(0xc4b5fd), // Violet
+    ];
 
     for (let i = 0; i < starCount; i++) {
-      const radius = 40 + Math.random() * 50;
+      const radius = 70 + Math.random() * 90;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
 
@@ -122,8 +232,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({
       starPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
       starPositions[i * 3 + 2] = radius * Math.cos(phi);
 
-      const rand = Math.random();
-      const col = rand > 0.6 ? cyanColor : rand > 0.3 ? violetColor : whiteColor;
+      const col = starColorPalette[Math.floor(Math.random() * starColorPalette.length)];
       starColors[i * 3] = col.r;
       starColors[i * 3 + 1] = col.g;
       starColors[i * 3 + 2] = col.b;
@@ -132,34 +241,36 @@ export const Globe3D: React.FC<Globe3DProps> = ({
     starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
 
     const starMat = new THREE.PointsMaterial({
-      size: 1.4,
+      size: 1.6,
       vertexColors: true,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.9,
     });
     const stars = new THREE.Points(starGeo, starMat);
     scene.add(stars);
 
-    // 6. Earth Mesh with procedural fallback
+    // 7. Initialize Satellite Texture Manager
+    const textureManager = new SatelliteTextureManager();
+    textureManagerRef.current = textureManager;
+
+    // 8. Earth Sphere
     const earthRadius = 1.8;
     const earthGeo = new THREE.SphereGeometry(earthRadius, 64, 64);
-    const { earthTexture, cloudsTexture } = loadEarthTextureWithFallback();
-
     const earthMat = new THREE.MeshStandardMaterial({
-      map: earthTexture,
-      roughness: 0.7,
-      metalness: 0.1,
+      map: textureManager.getTexture(settings.satelliteLayer),
+      roughness: 0.65,
+      metalness: 0.15,
     });
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
     scene.add(earthMesh);
     earthMeshRef.current = earthMesh;
 
-    // 7. Clouds Layer
+    // 9. Clouds Layer
     const cloudsGeo = new THREE.SphereGeometry(earthRadius * 1.012, 64, 64);
     const cloudsMat = new THREE.MeshStandardMaterial({
-      map: cloudsTexture,
+      map: textureManager.getCloudsTexture(),
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.38,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
@@ -167,9 +278,9 @@ export const Globe3D: React.FC<Globe3DProps> = ({
     scene.add(cloudsMesh);
     cloudsMeshRef.current = cloudsMesh;
 
-    // 8. Cyber Atmospheric Glow
+    // 10. Atmospheric Fresnel Shader Glow
     const atmosphereGeo = new THREE.SphereGeometry(earthRadius * 1.15, 64, 64);
-    const atmosphereShader = {
+    const atmosphereMat = new THREE.ShaderMaterial({
       vertexShader: `
         varying vec3 vNormal;
         void main() {
@@ -180,14 +291,10 @@ export const Globe3D: React.FC<Globe3DProps> = ({
       fragmentShader: `
         varying vec3 vNormal;
         void main() {
-          float intensity = pow(0.6 - dot(vNormal, vec3(0, 0, 1.0)), 2.2);
-          gl_FragColor = vec4(0.02, 0.72, 0.95, 1.0) * intensity * 0.9;
+          float intensity = pow(0.65 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+          gl_FragColor = vec4(0.0, 0.85, 1.0, 1.0) * intensity * 0.95;
         }
       `,
-    };
-    const atmosphereMat = new THREE.ShaderMaterial({
-      vertexShader: atmosphereShader.vertexShader,
-      fragmentShader: atmosphereShader.fragmentShader,
       blending: THREE.AdditiveBlending,
       side: THREE.BackSide,
       transparent: true,
@@ -197,19 +304,19 @@ export const Globe3D: React.FC<Globe3DProps> = ({
     scene.add(atmosphereMesh);
     atmosphereMeshRef.current = atmosphereMesh;
 
-    // 9. Cyber Holographic Wireframe Grid
+    // 11. Holographic Cyber Coordinate Grid
     const gridGeo = new THREE.SphereGeometry(earthRadius * 1.025, 24, 24);
     const gridMat = new THREE.MeshBasicMaterial({
       color: 0x06b6d4,
       wireframe: true,
       transparent: true,
-      opacity: 0.1,
+      opacity: 0.12,
     });
     const gridMesh = new THREE.Mesh(gridGeo, gridMat);
     scene.add(gridMesh);
     gridMeshRef.current = gridMesh;
 
-    // 10. City Markers Group
+    // 12. City Markers Group
     const markersGroup = new THREE.Group();
     scene.add(markersGroup);
     markersGroupRef.current = markersGroup;
@@ -217,13 +324,11 @@ export const Globe3D: React.FC<Globe3DProps> = ({
     CITIES.forEach((city) => {
       const pos = latLngToVector3(city.lat, city.lng, earthRadius * 1.015);
 
-      // Marker Pin Base
       const pinGeo = new THREE.SphereGeometry(0.032, 16, 16);
-      const pinMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
+      const pinMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
       const pinMesh = new THREE.Mesh(pinGeo, pinMat);
       pinMesh.position.copy(pos);
 
-      // Marker Beacon Ring
       const ringGeo = new THREE.RingGeometry(0.045, 0.065, 32);
       const ringMat = new THREE.MeshBasicMaterial({
         color: 0xa855f7,
@@ -235,7 +340,6 @@ export const Globe3D: React.FC<Globe3DProps> = ({
       ringMesh.position.copy(pos);
       ringMesh.lookAt(new THREE.Vector3(0, 0, 0));
 
-      // Glow Pillar
       const normal = pos.clone().normalize();
       const pillarGeo = new THREE.CylinderGeometry(0.006, 0.006, 0.15, 8);
       const pillarMat = new THREE.MeshBasicMaterial({
@@ -256,7 +360,69 @@ export const Globe3D: React.FC<Globe3DProps> = ({
       markersGroup.add(markerObj);
     });
 
-    // 11. Resize Handler
+    // 13. Orbiting Real Satellites Group
+    const satellitesGroup = new THREE.Group();
+    scene.add(satellitesGroup);
+    satellitesGroupRef.current = satellitesGroup;
+
+    REAL_SATELLITES.forEach((sat) => {
+      const satContainer = new THREE.Group();
+      (satContainer as any).userData = { sat, currentAngle: Math.random() * Math.PI * 2 };
+
+      // Orbit Trajectory Ring
+      const orbitCurve = new THREE.EllipseCurve(0, 0, sat.orbitRadius, sat.orbitRadius, 0, 2 * Math.PI, false, 0);
+      const orbitPoints = orbitCurve.getPoints(90);
+      const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPoints.map((p) => new THREE.Vector3(p.x, 0, p.y)));
+      const orbitMat = new THREE.LineBasicMaterial({
+        color: new THREE.Color(sat.color),
+        transparent: true,
+        opacity: 0.35,
+      });
+      const orbitLine = new THREE.Line(orbitGeo, orbitMat);
+
+      // Tilt orbit according to inclination
+      const inclinationRad = (sat.inclination * Math.PI) / 180;
+      orbitLine.rotation.x = inclinationRad;
+      satContainer.add(orbitLine);
+
+      // Satellite Craft Body
+      const craftGroup = new THREE.Group();
+
+      // Main core
+      const bodyGeo = new THREE.BoxGeometry(0.05, 0.05, 0.08);
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0xdddddd,
+        metalness: 0.8,
+        roughness: 0.2,
+      });
+      const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+      craftGroup.add(bodyMesh);
+
+      // Solar Panels
+      const panelGeo = new THREE.BoxGeometry(0.18, 0.005, 0.06);
+      const panelMat = new THREE.MeshStandardMaterial({
+        color: 0x0284c7,
+        metalness: 0.9,
+        roughness: 0.1,
+      });
+      const panelMesh = new THREE.Mesh(panelGeo, panelMat);
+      craftGroup.add(panelMesh);
+
+      // Glowing Beacon Light
+      const beaconGeo = new THREE.SphereGeometry(0.02, 12, 12);
+      const beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(sat.color) });
+      const beaconMesh = new THREE.Mesh(beaconGeo, beaconMat);
+      beaconMesh.position.y = 0.04;
+      craftGroup.add(beaconMesh);
+
+      // Positioning helper
+      (craftGroup as any).userData = { sat, inclinationRad };
+      satContainer.add(craftGroup);
+
+      satellitesGroup.add(satContainer);
+    });
+
+    // 14. Responsive Resize
     const handleResize = () => {
       if (!container || !rendererRef.current || !cameraRef.current) return;
       const w = container.clientWidth;
@@ -267,14 +433,14 @@ export const Globe3D: React.FC<Globe3DProps> = ({
     };
     window.addEventListener('resize', handleResize);
 
-    // 12. Render Animation Loop
+    // 15. Animation Loop
     let lastTime = performance.now();
     const animate = (currentTime: number) => {
       animFrameId.current = requestAnimationFrame(animate);
       const dt = Math.min(0.1, (currentTime - lastTime) / 1000);
       lastTime = currentTime;
 
-      // Handle Smooth Reset Animation
+      // Handle Smooth Reset
       if (isResetting.current) {
         globeRotation.current.x += (0.2 - globeRotation.current.x) * 0.08;
         globeRotation.current.y += (0 - globeRotation.current.y) * 0.08;
@@ -286,8 +452,7 @@ export const Globe3D: React.FC<Globe3DProps> = ({
         const isNearDefault =
           Math.abs(globeRotation.current.x - 0.2) < 0.01 &&
           Math.abs(globeRotation.current.y) < 0.01 &&
-          Math.abs(cameraDistance.current - 4.6) < 0.02 &&
-          Math.abs(cameraTarget.current.x) < 0.01;
+          Math.abs(cameraDistance.current - 4.6) < 0.02;
 
         if (isNearDefault) {
           globeRotation.current.x = 0.2;
@@ -300,45 +465,64 @@ export const Globe3D: React.FC<Globe3DProps> = ({
           if (onResetComplete) onResetComplete();
         }
       } else if (settings.autoRotate && (!gestureResult || gestureResult.activeGesture === 'none')) {
-        // Subtle idle rotation when no active gestures
         globeRotation.current.y += settings.autoRotateSpeed * dt * 0.25;
       }
 
-      // Apply rotation to Earth and children
+      // Rotate Earth & Layers
       if (earthMeshRef.current) {
         earthMeshRef.current.rotation.x = globeRotation.current.x;
         earthMeshRef.current.rotation.y = globeRotation.current.y;
         earthMeshRef.current.rotation.z = globeRotation.current.z;
       }
 
-      // Clouds rotate slightly faster for realism
       if (cloudsMeshRef.current && earthMeshRef.current) {
         cloudsMeshRef.current.rotation.x = globeRotation.current.x;
         cloudsMeshRef.current.rotation.y = globeRotation.current.y * 1.05 + currentTime * 0.00004;
         cloudsMeshRef.current.rotation.z = globeRotation.current.z;
       }
 
-      // Grid rotation
       if (gridMeshRef.current && earthMeshRef.current) {
         gridMeshRef.current.rotation.x = globeRotation.current.x;
         gridMeshRef.current.rotation.y = globeRotation.current.y;
         gridMeshRef.current.rotation.z = globeRotation.current.z;
       }
 
-      // Markers follow globe rotation
       if (markersGroupRef.current) {
         markersGroupRef.current.rotation.x = globeRotation.current.x;
         markersGroupRef.current.rotation.y = globeRotation.current.y;
         markersGroupRef.current.rotation.z = globeRotation.current.z;
 
-        // Pulse marker rings
         const pulse = 1 + Math.sin(currentTime * 0.004) * 0.25;
         markersGroupRef.current.children.forEach((child) => {
           const ring = child.children[1];
-          if (ring) {
-            ring.scale.set(pulse, pulse, 1);
+          if (ring) ring.scale.set(pulse, pulse, 1);
+        });
+      }
+
+      // Animate Satellites along their 3D orbital planes
+      if (satellitesGroupRef.current) {
+        satellitesGroupRef.current.children.forEach((satCont) => {
+          const data = (satCont as any).userData;
+          if (!data) return;
+          data.currentAngle += data.sat.orbitSpeed * dt * 0.4;
+          const r = data.sat.orbitRadius;
+          const craftGroup = satCont.children[1];
+          if (craftGroup) {
+            const inc = (craftGroup as any).userData.inclinationRad;
+            // Orbit position with inclination tilt
+            const ox = r * Math.cos(data.currentAngle);
+            const oz = r * Math.sin(data.currentAngle) * Math.cos(inc);
+            const oy = r * Math.sin(data.currentAngle) * Math.sin(inc);
+
+            craftGroup.position.set(ox, oy, oz);
+            craftGroup.rotation.y += 0.02;
           }
         });
+      }
+
+      // Nebula slow rotation
+      if (nebulaGroupRef.current) {
+        nebulaGroupRef.current.rotation.y += 0.00005;
       }
 
       // Camera position with pan offset & zoom
@@ -356,7 +540,6 @@ export const Globe3D: React.FC<Globe3DProps> = ({
 
     animFrameId.current = requestAnimationFrame(animate);
 
-    // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
       if (animFrameId.current) cancelAnimationFrame(animFrameId.current);
@@ -367,30 +550,50 @@ export const Globe3D: React.FC<Globe3DProps> = ({
     };
   }, []);
 
-  // Update Settings Toggles (Clouds, Atmosphere, Grid, Markers)
+  // Update Satellite Texture Layer Mode (Blue Marble / Night Lights / Topography / Galaxy)
   useEffect(() => {
-    if (cloudsMeshRef.current) cloudsMeshRef.current.visible = settings.showClouds;
-    if (atmosphereMeshRef.current) atmosphereMeshRef.current.visible = settings.showAtmosphere;
+    if (!earthMeshRef.current || !textureManagerRef.current) return;
+    const newTex = textureManagerRef.current.getTexture(settings.satelliteLayer);
+    (earthMeshRef.current.material as THREE.MeshStandardMaterial).map = newTex;
+    (earthMeshRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
+
+    // Adjust atmosphere & clouds visibility for galaxy mode
+    if (settings.satelliteLayer === 'galaxy_milkyway') {
+      if (cloudsMeshRef.current) cloudsMeshRef.current.visible = false;
+      if (atmosphereMeshRef.current) atmosphereMeshRef.current.visible = false;
+    } else {
+      if (cloudsMeshRef.current) cloudsMeshRef.current.visible = settings.showClouds;
+      if (atmosphereMeshRef.current) atmosphereMeshRef.current.visible = settings.showAtmosphere;
+    }
+  }, [settings.satelliteLayer, settings.showClouds, settings.showAtmosphere]);
+
+  // Update Settings Toggles
+  useEffect(() => {
     if (gridMeshRef.current) gridMeshRef.current.visible = settings.showGrid;
     if (markersGroupRef.current) markersGroupRef.current.visible = settings.showMarkers;
-  }, [settings.showClouds, settings.showAtmosphere, settings.showGrid, settings.showMarkers]);
+    if (satellitesGroupRef.current) satellitesGroupRef.current.visible = settings.showSatellites;
+    if (nebulaGroupRef.current) nebulaGroupRef.current.visible = settings.showNebula;
+  }, [settings.showGrid, settings.showMarkers, settings.showSatellites, settings.showNebula]);
 
-  // Handle Target City Focus
+  // Focus City
   useEffect(() => {
     if (!selectedCity) return;
-    // Animate rotation to bring selected city to front (facing camera)
     const targetY = -((selectedCity.lng + 180) * (Math.PI / 180)) + Math.PI / 2;
     const targetX = (selectedCity.lat * (Math.PI / 180)) * 0.5;
-
     globeRotation.current.y = targetY;
     globeRotation.current.x = targetX;
   }, [selectedCity]);
 
-  // Process Gesture Stream from Hand Tracking
+  // Focus Satellite
+  useEffect(() => {
+    if (!selectedSatellite) return;
+    cameraDistance.current = Math.max(2.6, selectedSatellite.orbitRadius * 1.35);
+  }, [selectedSatellite]);
+
+  // Real-time Gesture Control Stream
   useEffect(() => {
     if (!gestureResult || gestureResult.isPaused) return;
 
-    // Reset hold triggered
     if (gestureResult.activeGesture === 'reset_hold' && gestureResult.resetProgress >= 0.99) {
       isResetting.current = true;
       return;
@@ -400,49 +603,45 @@ export const Globe3D: React.FC<Globe3DProps> = ({
 
     // 1. ZOOM DELTA (Distance change)
     if (Math.abs(gestureResult.zoomDelta) > 0.001) {
-      // Zoom in decreases cameraDistance, zoom out increases cameraDistance
       cameraDistance.current = THREE.MathUtils.clamp(
-        cameraDistance.current - gestureResult.zoomDelta * 0.7,
-        2.2, // min distance (close-up)
-        7.5  // max distance (far space)
+        cameraDistance.current - gestureResult.zoomDelta * 0.75,
+        2.1,
+        8.5
       );
     }
 
-    // 2. PAN DELTA (Both hands moving in unison)
+    // 2. PAN DELTA (Hands moving together)
     if (gestureResult.activeGesture === 'pan') {
-      const panSpeed = 0.45;
+      const panSpeed = 0.5;
       cameraTarget.current.x = THREE.MathUtils.clamp(
         cameraTarget.current.x + gestureResult.panDelta.x * panSpeed,
-        -1.8,
-        1.8
+        -2.2,
+        2.2
       );
       cameraTarget.current.y = THREE.MathUtils.clamp(
         cameraTarget.current.y - gestureResult.panDelta.y * panSpeed,
-        -1.4,
-        1.4
+        -1.6,
+        1.6
       );
     }
 
     // 3. ROTATION DELTA (Hands moving in opposite directions)
     if (gestureResult.activeGesture === 'rotate') {
-      const rotSpeed = 0.55;
+      const rotSpeed = 0.6;
       globeRotation.current.y += gestureResult.rotationDelta.y * rotSpeed;
       globeRotation.current.x = THREE.MathUtils.clamp(
         globeRotation.current.x + gestureResult.rotationDelta.x * rotSpeed,
-        -Math.PI / 2.2,
-        Math.PI / 2.2
+        -Math.PI / 2.1,
+        Math.PI / 2.1
       );
-      // Subtle roll
-      globeRotation.current.z += gestureResult.rotationDelta.roll * 0.2;
+      globeRotation.current.z += gestureResult.rotationDelta.roll * 0.25;
     }
   }, [gestureResult]);
 
-  // Trigger smooth reset directly
   const handleTriggerReset = useCallback(() => {
     isResetting.current = true;
   }, []);
 
-  // Expose reset to window or parent if needed
   useEffect(() => {
     (window as any).__auraResetGlobe = handleTriggerReset;
     return () => {
@@ -465,21 +664,21 @@ export const Globe3D: React.FC<Globe3DProps> = ({
 
     if (dragMode.current === 'pan') {
       cameraTarget.current.x = THREE.MathUtils.clamp(
-        cameraTarget.current.x - dx * 0.0035,
-        -1.8,
-        1.8
+        cameraTarget.current.x - dx * 0.004,
+        -2.2,
+        2.2
       );
       cameraTarget.current.y = THREE.MathUtils.clamp(
-        cameraTarget.current.y + dy * 0.0035,
-        -1.4,
-        1.4
+        cameraTarget.current.y + dy * 0.004,
+        -1.6,
+        1.6
       );
     } else {
-      globeRotation.current.y += dx * 0.006;
+      globeRotation.current.y += dx * 0.0065;
       globeRotation.current.x = THREE.MathUtils.clamp(
-        globeRotation.current.x + dy * 0.006,
-        -Math.PI / 2.2,
-        Math.PI / 2.2
+        globeRotation.current.x + dy * 0.0065,
+        -Math.PI / 2.1,
+        Math.PI / 2.1
       );
     }
   };
@@ -491,8 +690,8 @@ export const Globe3D: React.FC<Globe3DProps> = ({
   const handleWheel = (e: React.WheelEvent) => {
     cameraDistance.current = THREE.MathUtils.clamp(
       cameraDistance.current + e.deltaY * 0.002,
-      2.2,
-      7.5
+      2.1,
+      8.5
     );
   };
 
@@ -507,10 +706,14 @@ export const Globe3D: React.FC<Globe3DProps> = ({
       onContextMenu={(e) => e.preventDefault()}
       className="relative w-full h-full cursor-grab active:cursor-grabbing overflow-hidden select-none touch-none"
     >
-      {/* Reticle Overlay / Crosshair */}
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-30">
-        <div className="w-48 h-48 rounded-full border border-dashed border-cyan-500/40 animate-spin" style={{ animationDuration: '40s' }} />
-        <div className="absolute w-64 h-64 rounded-full border border-violet-500/20" />
+      {/* Sci-Fi Galactic Reticle Center Overlay */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-25">
+        <div
+          className="w-56 h-56 rounded-full border border-dashed border-cyan-400/40 animate-spin"
+          style={{ animationDuration: '45s' }}
+        />
+        <div className="absolute w-72 h-72 rounded-full border border-violet-500/20" />
+        <div className="absolute w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_10px_#00f0ff]" />
       </div>
     </div>
   );

@@ -32,7 +32,7 @@ export const GestureGuide: React.FC<GestureGuideProps> = ({
     },
     {
       id: 'rotate',
-      title: 'Rotate Globe',
+      title: 'Rotate Space View',
       desc: 'Move hands in opposite directions (up/down or left/right)',
       icon: <RotateCw className="w-4 h-4" />,
       isActive: activeGesture === 'rotate',
