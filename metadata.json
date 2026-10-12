@@ -1,0 +1,10 @@
+{
+  "name": "AuraVision AI — 3D Gesture Globe",
+  "description": "Futuristic 3D Earth Globe controlled in real-time via dual-hand webcam gesture tracking with MediaPipe and Three.js.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
