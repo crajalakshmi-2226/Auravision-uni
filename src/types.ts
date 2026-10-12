@@ -1,14 +1,56 @@
+export type HologramType =
+  | 'earth'
+  | 'moon'
+  | 'galaxy'
+  | 'sun'
+  | 'mars'
+  | 'universe';
+
+export interface HologramDefinition {
+  id: HologramType;
+  name: string;
+  tagline: string;
+  category: string;
+  color: string;
+  glowColor: string;
+  realRadius: string;
+  realDistance: string;
+  temperature: string;
+  description: string;
+}
+
 export type HandPosture = 'open_palm' | 'fist' | 'pinch' | 'pointing' | 'neutral';
+
+export interface HandLandmark {
+  x: number;
+  y: number;
+  z: number;
+}
 
 export interface HandData {
   handedness: 'Left' | 'Right' | 'Unknown';
   score: number;
-  landmarks: Array<{ x: number; y: number; z: number }>;
+  landmarks: HandLandmark[];
   center: { x: number; y: number; z: number };
+  palmCenter?: { x: number; y: number; z: number };
+  palmNormal?: { x: number; y: number; z: number };
+  palmRoll?: number; // in radians
+  palmPitch?: number;
   posture: HandPosture;
   isOpenPalm: boolean;
   isFist: boolean;
+  isPinching?: boolean;
 }
+
+export type ActiveGesture =
+  | 'none'
+  | 'palm_hover'
+  | 'pinch_grab'
+  | 'dual_hand_zoom'
+  | 'dual_hand_spin'
+  | 'fist_stasis'
+  | 'point_select'
+  | 'reset_hold';
 
 export type ActiveGestureType =
   | 'none'
@@ -23,19 +65,40 @@ export interface GestureDetectionResult {
   activeGesture: ActiveGestureType;
   gestureDescription: string;
   panDelta: { x: number; y: number };
-  zoomDelta: number; // positive = zoom in, negative = zoom out
+  zoomDelta: number;
   rotationDelta: { x: number; y: number; roll: number };
-  resetProgress: number; // 0 to 1
+  resetProgress: number;
   isPaused: boolean;
   handCount: number;
   confidence: number;
 }
 
+export interface HandTrackingState {
+  hands: HandData[];
+  anchorPoint: { x: number; y: number; z: number } | null;
+  handCount: number;
+  activeGesture: ActiveGesture;
+  gestureDescription: string;
+  zoomScale: number;
+  rotationDelta: { x: number; y: number; z: number };
+  isPinching: boolean;
+  resetProgress: number;
+}
+
+export interface AppSettings {
+  soundEnabled: boolean;
+  showSkeleton: boolean;
+  showEnergyPedestal: boolean;
+  hologramBrightness: number;
+  gestureSensitivity: number;
+  mirrorCamera: boolean;
+}
+
 export type SatelliteLayerMode =
-  | 'blue_marble'       // NASA Blue Marble true-color optical satellite composite
-  | 'black_marble_night'// NASA VIIRS Black Marble Earth at night lights
-  | 'topography'        // Global topographic relief & tectonic satellite
-  | 'galaxy_milkyway';  // Deep space galactic panorama & constellations
+  | 'blue_marble'
+  | 'black_marble_night'
+  | 'topography'
+  | 'galaxy_milkyway';
 
 export interface SatelliteEntity {
   id: string;
@@ -43,10 +106,10 @@ export interface SatelliteEntity {
   code: string;
   altitudeKm: number;
   speedKmh: number;
-  inclination: number; // degrees
+  inclination: number;
   mission: string;
   agency: string;
-  orbitRadius: number; // 3D units relative to Earth radius
+  orbitRadius: number;
   orbitSpeed: number;
   color: string;
   category: 'Space Station' | 'Observatory' | 'Earth Observation' | 'Deep Space';
@@ -61,15 +124,6 @@ export interface CityMarker {
   region: string;
 }
 
-export interface CelestialTarget {
-  id: string;
-  name: string;
-  constellation: string;
-  distanceLightYears: string;
-  description: string;
-  direction: [number, number, number];
-}
-
 export interface GlobeSettings {
   satelliteLayer: SatelliteLayerMode;
   autoRotate: boolean;
@@ -80,5 +134,5 @@ export interface GlobeSettings {
   showMarkers: boolean;
   showSatellites: boolean;
   showNebula: boolean;
-  gestureSensitivity: number; // 0.5 to 2.5
+  gestureSensitivity: number;
 }
